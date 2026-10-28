@@ -1273,9 +1273,11 @@
   const hashKey = (...parts) => cyrb53(JSON.stringify(parts)).toString(36);
   // A mesma pergunta no mesmo contexto: quem responde (UC ou automático), estilo, fontes externas, motor, as últimas
   // mensagens da conversa e a versão da biblioteca (um PDF novo muda os excertos, por isso muda a chave).
+  // Muda quando as instruções dos agentes mudam: as respostas guardadas com as instruções antigas deixam de servir.
+  const PROMPT_V = 2;
   function answerKey({ q, mode, estilo, web, engine, hist = [], lib = 0 }) {
     const tail = cleanHistory(hist, 4).map(m => [m.role, normQ(m.content).slice(0, 400)]);
-    return 'a:' + hashKey(normQ(q), mode, estilo, !!web, engine, tail, lib);
+    return 'a:' + hashKey(normQ(q), mode, estilo, !!web, engine, tail, lib, PROMPT_V);
   }
   const cacheFresh = (e, now = Date.now()) => !!(e && e.v !== undefined && CACHE_TTL[e.kind] && e.t <= now + 60000 && now - e.t < CACHE_TTL[e.kind]);
   // O que apagar: o que passou do prazo e, por tipo, o que passa do máximo (os mais antigos primeiro).
