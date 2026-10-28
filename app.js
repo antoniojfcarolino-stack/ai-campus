@@ -184,11 +184,18 @@
     }
   }
 
+  // Um motor que fica calado demasiado tempo (sem enviar nada) não prende a app: ao fim de 2 minutos desiste com um erro
+  // (no 🔁 Automático passa ao motor seguinte).
+  const SSE_IDLE_MS = 120000;
   async function* sse(r) {
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = '';
     for (;;) {
-      const { done, value } = await reader.read();
+      let timer;
+      const parado = new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error('O motor deixou de responder (2 minutos sem enviar nada). Tenta outra vez.'), { status: 504 })), SSE_IDLE_MS); });
+      let res;
+      try { res = await Promise.race([reader.read(), parado]); } catch (e) { reader.cancel().catch(() => {}); throw e; } finally { clearTimeout(timer); }
+      const { done, value } = res;
       buf = (buf + dec.decode(value || new Uint8Array(), { stream: !done })).replace(/\r\n/g, '\n'); // \r\n pode vir partido entre dois pedaços
       let i;
       while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); yield* sseEvents(block); }
@@ -1010,6 +1017,18 @@
     // Claude: cálculo e pesquisa dele (as duas podem estar ligadas). Gemini e motores grátis: cálculo; a pesquisa são as fontes externas.
     const tool = isClaude() ? (web ? (uc.tool === 'code' ? ['code', 'search'] : ['search']) : [uc.tool]) : (uc.tool === 'code' ? 'code' : undefined);
     const r = await aiStream({ system: sys, history: hist, parts, tool, maxHistory: S.hist }, onUpdate, signal);
+    if (!String(r.text || '').trim() && (r.calcs || []).length) {
+      // Alguns modelos (ex.: Gemini Flash) às vezes param logo depois de correr o código, sem escrever a explicação.
+      // Pede-a de novo, sem ferramentas, com os resultados já calculados (não volta a gastar tempo a calcular).
+      const calcs = r.calcs, feitos = calcs.map((c, i) => `Cálculo ${i + 1}:\n${String(c.code || '').slice(0, 2500)}\n→ ${String(c.output || '(sem resultado)').slice(0, 1500)}`).join('\n\n');
+      onUpdate && onUpdate({ ...r, status: '✍️ A escrever a explicação…' });
+      const r2 = await aiStream({ system: sys, history: hist, maxHistory: S.hist,
+        parts: [...parts, { text: `CÁLCULOS JÁ FEITOS COM PYTHON (usa estes resultados e não voltes a calcular):\n${feitos}\n\nEscreve agora a resposta ao aluno, no estilo pedido.` }] },
+      x => onUpdate && onUpdate({ ...x, calcs }), signal);
+      r.text = r2.text;
+      if (r2.sources && r2.sources.length) r.sources = [...(r.sources || []), ...r2.sources];
+      if (r2.tried) r.tried = [...(r.tried || []), ...r2.tried];
+    }
     if (ext.sources.length) r.sources = [...ext.sources, ...(r.sources || []).filter(s => !ext.sources.some(x => x.uri === s.uri))];
     return r;
   }

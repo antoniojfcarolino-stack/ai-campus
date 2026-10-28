@@ -1,7 +1,7 @@
 /* Service worker: a app abre offline (a IA precisa de internet).
    Ficheiros da app: rede primeiro (as atualizações chegam logo), com cache de reserva.
    Bibliotecas do cdnjs (versões fixas): cache primeiro. */
-const CACHE = 'ai-campus-v8';   // muda a cada versão: a nova instala-se e a antiga é apagada
+const CACHE = 'ai-campus-v9';   // muda a cada versão: a nova instala-se e a antiga é apagada
 const LOCAL = ['./', 'index.html', 'style.css', 'core.js', 'db.js', 'app.js', 'py-worker.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const CDN = [
   'https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css',
