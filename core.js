@@ -92,7 +92,7 @@
 
   const ESTILOS = {
     tutor: 'ESTILO TUTOR: não dês logo a solução completa de exercícios. Dá o raciocínio e a próxima pista, explica o método e termina com uma pergunta para o aluno tentar o passo seguinte. Só mostras a solução completa se o aluno a pedir explicitamente.',
-    completo: 'ESTILO RESOLUÇÃO: apresenta a solução completa, passo a passo, e explica o porquê de cada passo.',
+    completo: 'ESTILO RESOLUÇÃO: começa SEMPRE pela linha «**Resposta final:**» com o resultado (valores, vetores, a conclusão), curto e sem explicação. Depois, numa secção «**Explicação**», apresenta a solução completa, passo a passo, e explica o porquê de cada passo.',
   };
 
   // Regra para quando a resposta também leva fontes de fora (Wikipédia, Stack Overflow, artigos, web): os apontamentos vêm primeiro.
