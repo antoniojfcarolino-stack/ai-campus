@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Campus · Política de privacidade</title>
+<style>
+  :root{--bg:#f7f7fb;--ink:#1c1b22;--mute:#6b6b7b}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f0f14;--ink:#ececf4;--mute:#9a9aae}}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:720px;margin:0 auto;padding:24px 16px 48px}
+  h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:1.6rem}
+  small{color:var(--mute)}a{color:#6d64ff}
+</style>
+</head>
+<body>
+<main>
+  <h1>🎓 AI Campus · Política de privacidade</h1>
+  <p><small>Última atualização: 28 de outubro de 2026</small></p>
+
+  <p>O AI Campus é uma app pessoal de estudo, usada apenas pelo seu autor. Não tem servidor próprio, contas de utilizador
+  nem publicidade, e não vende nem partilha dados com terceiros.</p>
+
+  <h2>Que dados existem e onde ficam</h2>
+  <ul>
+    <li><b>No aparelho:</b> conversas, apontamentos (PDFs, textos, imagens), cartas de estudo, plano, definições e as chaves
+    dos serviços de IA ficam guardados no próprio browser (IndexedDB e localStorage).</li>
+    <li><b>No Google Drive do utilizador (opcional):</b> se ligar o Drive, a app guarda uma cópia desses dados numa pasta
+    «AI Campus» do Drive <i>do próprio utilizador</i>. As chaves dos serviços de IA nunca vão para o Drive.</li>
+  </ul>
+
+  <h2>Acesso ao Google Drive</h2>
+  <p>A app pede apenas o acesso <code>drive.file</code>: só consegue ver e alterar os ficheiros que ela própria criou.
+  Não lê o resto do Drive. O acesso pode ser retirado a qualquer momento em
+  <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>
+  ou no botão «Desligar» das definições da app.</p>
+  <p>O uso de informação recebida das APIs Google cumpre a
+  <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+  incluindo os requisitos de uso limitado (Limited Use).</p>
+
+  <h2>Serviços de IA e fontes externas</h2>
+  <p>Para responder, a app envia a pergunta e os excertos relevantes dos apontamentos ao serviço de IA escolhido pelo
+  utilizador (por exemplo Google Gemini, OpenRouter, Mistral, Groq, Cloudflare ou Anthropic), com a chave do próprio
+  utilizador. As fontes externas (Wikipédia, Stack Overflow, OpenAlex, Tavily) recebem apenas palavras-chave da pergunta.
+  Cada serviço trata esses dados segundo a sua própria política; nos planos gratuitos de alguns, os dados podem ser
+  usados para melhorar os modelos.</p>
+
+  <h2>Apagar os dados</h2>
+  <p>Nas definições da app, «Apagar tudo» remove os dados do aparelho. A pasta «AI Campus» do Drive pode ser apagada pelo
+  próprio utilizador no Google Drive.</p>
+
+  <h2>Contacto</h2>
+  <p>Questões sobre esta política: o email de suporte indicado na página de autorização da Google.</p>
+</main>
+</body>
+</html>
