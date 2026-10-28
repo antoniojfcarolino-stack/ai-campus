@@ -1,0 +1,22 @@
+{
+  "name": "AI Campus",
+  "short_name": "AI Campus",
+  "description": "6 agentes de estudo de Engenharia Informática, com os teus apontamentos.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#4f46e5",
+  "theme_color": "#4f46e5",
+  "lang": "pt-PT",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Rever cartas de hoje", "short_name": "Rever", "url": "./index.html?go=review", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Plano de estudo", "short_name": "Plano", "url": "./index.html?go=plan", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Progresso", "short_name": "Progresso", "url": "./index.html?go=progress", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
+  ]
+}

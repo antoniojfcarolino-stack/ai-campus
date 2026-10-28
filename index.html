@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>AI Campus</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="overlay"></div>
+  <aside id="side">
+    <div class="side-head">
+      <h1>🎓 AI Campus</h1>
+      <button id="closeSide" class="icon only-narrow" aria-label="Fechar">✕</button>
+    </div>
+    <button id="semBtn" class="sem-chip wide" title="Semestres e UCs: mudar de semestre, acrescentar ou editar UCs">🎓 Semestre</button>
+    <button id="newChat" class="primary wide">＋ Nova conversa</button>
+
+    <label>Motor de IA
+      <select id="engine">
+        <option value="auto">🔁 Automático (grátis)</option>
+        <option value="gemini">✨ Gemini</option>
+        <option value="claude">🟠 Claude (API)</option>
+      </select>
+    </label>
+    <label>Quem responde?
+      <select id="mode"></select>
+    </label>
+    <label>Estilo
+      <select id="estilo">
+        <option value="tutor">🧭 Tutor (pistas primeiro)</option>
+        <option value="completo">✅ Resolução completa</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="web"> <span id="webLbl">🌐 Fontes externas (Wikipédia, Stack Overflow, artigos, web)</span></label>
+
+    <details id="chatsBox" open><summary>💬 Conversas</summary><div id="chatList"></div></details>
+
+    <details id="libBox" open>
+      <summary>📚 Biblioteca</summary>
+      <select id="libUc" aria-label="UC da biblioteca"></select>
+      <div class="row lib-row">
+        <select id="libTipo" aria-label="Tipo dos ficheiros a carregar"></select>
+        <input id="libTema" list="temaList" placeholder="Tema / semana (opcional)" aria-label="Tema dos ficheiros a carregar" maxlength="60">
+      </div>
+      <datalist id="temaList"></datalist>
+      <input type="file" id="fileIn" multiple hidden accept=".pdf,.txt,.md,.py,.c,.h,.asm,.java,.csv,video/*,image/*">
+      <button id="addFile" class="wide">📤 Carregar PDF / vídeo / texto / imagem</button>
+      <select id="libFiltro" aria-label="Mostrar" hidden></select>
+      <div id="fileList"></div>
+      <p class="hint">PDFs, textos e imagens (com OCR) ficam pesquisáveis e os agentes citam a página. O tema (ex.: «Semana 3», «Cap. 2») arruma os ficheiros por pastas no Drive e no Mac; ✏️ muda-o depois. 📌 envia o ficheiro inteiro (vídeos até ~15 MB, só no Gemini).</p>
+    </details>
+
+    <div class="side-foot">
+      <button id="progBtn">📊 Progresso</button>
+      <button id="planBtn">📅 Plano</button>
+      <button id="studyBtn">🃏 Estudar</button>
+      <button id="setBtn">⚙️ Definições</button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <button id="openSide" class="icon only-narrow" aria-label="Menu">☰</button>
+      <div id="title">Nova conversa</div>
+      <button id="syncBtn" class="badge-btn" hidden title="Sincronizar com o Google Drive">☁️</button>
+      <span id="net" class="badge" hidden>offline</span>
+      <button id="expChat" class="icon" aria-label="Exportar conversa" title="Exportar conversa (.md)">⬇️</button>
+    </header>
+    <div id="msgs" aria-live="polite"></div>
+    <div id="chips"></div>
+    <form id="composer">
+      <button type="button" id="camBtn" class="icon" aria-label="Foto">📷</button>
+      <input type="file" id="imgIn" accept="image/*" multiple hidden>
+      <textarea id="input" rows="1" placeholder="Pergunta, link ou foto…"></textarea>
+      <button type="button" id="micBtn" class="icon" aria-label="Ditar">🎤</button>
+      <button type="submit" id="sendBtn" class="primary icon" aria-label="Enviar">➤</button>
+    </form>
+  </main>
+</div>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h2>⚙️ Definições</h2>
+
+    <details open>
+      <summary>🔑 Ligação ao Gemini</summary>
+      <label>Chave Gemini (fica só neste telemóvel)
+        <input id="keyIn" type="password" autocomplete="off" placeholder="AIza…">
+      </label>
+      <p class="hint">Grátis em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Restringe a chave ao endereço desta app, ou usa o proxy para a esconder.</p>
+      <label>Modelo
+        <input id="modelIn" list="models">
+        <datalist id="models"><option value="gemini-flash-latest"><option value="gemini-pro-latest"><option value="gemini-3.5-flash"><option value="gemini-3.1-flash-lite"></datalist>
+      </label>
+    </details>
+
+    <details id="freeBox">
+      <summary>🔁 Motores grátis e fontes externas</summary>
+      <p class="hint">No motor <b>🔁 Automático (grátis)</b> a app usa estes motores por ordem: quando um chega ao limite, passa ao seguinte sem perderes a pergunta e lembra-se até ele repor. Basta a chave Gemini; cada motor a mais dá mais perguntas por dia. <b>Mistral, Groq e Cloudflare</b> só funcionam através do proxy, onde ficam as chaves deles. Passo a passo em GUIA_GRATIS.md.</p>
+      <div id="chainList"></div>
+      <div class="row">
+        <select id="chainP" aria-label="fornecedor"></select>
+        <input id="chainM" list="chainModels" placeholder="modelo" aria-label="modelo">
+        <datalist id="chainModels"></datalist>
+        <button type="button" id="chainAdd" aria-label="acrescentar motor">＋</button>
+      </div>
+      <div class="row">
+        <button type="button" id="chainDefault">↺ Ordem por omissão</button>
+        <button type="button" id="chainClear">🧹 Limpar esgotados</button>
+        <button type="button" id="orModels">🔄 Grátis do OpenRouter</button>
+      </div>
+      <label>Chave OpenRouter (opcional; fica só neste telemóvel)
+        <input id="okeyIn" type="password" autocomplete="off" placeholder="sk-or-…">
+      </label>
+      <label>Chave Tavily: pesquisa web (opcional; sem ela usa o modo grátis sem conta)
+        <input id="tkeyIn" type="password" autocomplete="off" placeholder="tvly-…">
+      </label>
+      <label>Chave OpenAlex: artigos científicos (opcional)
+        <input id="akeyIn" type="password" autocomplete="off">
+      </label>
+      <label>Chave Stack Exchange (opcional, só dá mais pedidos por dia)
+        <input id="skeyIn" type="password" autocomplete="off">
+      </label>
+      <p class="hint">Fontes externas: Wikipédia e Stack Overflow não precisam de chave. Os motores grátis do Google e da Mistral podem usar o que envias para treinar modelos: não metas dados pessoais.</p>
+      <div class="row"><button type="button" id="pyTest">🐍 Testar Python no telemóvel</button></div>
+      <p id="freeMsg" class="hint"></p>
+    </details>
+
+    <details id="alunoBox">
+      <summary>🙂 Sobre ti (para os agentes falarem contigo como um colega)</summary>
+      <label>Como te chamas? <input id="alNome" maxlength="40" autocomplete="off" placeholder="ex.: Ana"></label>
+      <label>Como gostas que te expliquem e o que te custa mais
+        <textarea id="alSobre" rows="3" maxlength="600" placeholder="ex.: prefiro um exemplo antes da teoria; custa-me séries; frequência de Álgebra a 12/11"></textarea>
+      </label>
+      <label class="check"><input type="checkbox" id="alAuto"> 🧠 Aprender sozinho com as conversas (1 pedido rápido e grátis a cada 6 perguntas; nunca com o Claude)</label>
+      <p class="hint">O que os agentes já sabem de ti (toca em ✕ para esquecer). As perguntas de quiz e as cartas que erras também entram, e 👍/👎 por baixo de cada resposta ensinam o tom de que gostas.</p>
+      <div id="alMem"></div>
+      <div class="row"><button type="button" id="alLimpar">🧹 Esquecer tudo o que aprendeu</button></div>
+      <p class="hint">Fica neste telemóvel, no backup e, se o ligaste, no teu Drive (e no Mac). Não escrevas aqui dados sensíveis.</p>
+    </details>
+
+    <details id="smartBox">
+      <summary>⚡ Cache, confirmação das contas e ordem automática</summary>
+      <label class="check"><input type="checkbox" id="cacheOn"> 💾 Reutilizar respostas a perguntas iguais (e pesquisas repetidas): não gastam pedidos</label>
+      <p class="hint">Só perguntas de texto, com a mesma UC, estilo, motor e conversa, durante 14 dias; um PDF novo na biblioteca invalida-as. Numa resposta guardada, 🔄 pede uma nova. Fica só neste telemóvel.</p>
+      <p id="cacheInfo" class="hint"></p>
+      <div class="row"><button type="button" id="cacheClear">🧹 Limpar a cache</button></div>
+      <label class="check"><input type="checkbox" id="verifyOn"> ✔︎ Confirmar as contas (Álgebra, Análise, Arquitetura) com um segundo motor grátis</label>
+      <p class="hint">Outro motor refaz os resultados principais e diz se batem certo (✔︎) ou onde está o erro (⚠️). Usa sempre um motor grátis diferente do que respondeu, mesmo com o Claude; gasta mais um pedido por resposta com contas.</p>
+      <label class="check"><input type="checkbox" id="adaptOn"> 🧠 Ajustar a ordem dos motores grátis pelos números da última semana</label>
+      <p class="hint">Só desce os motores que falham muito ou são muito mais lentos; a tua ordem continua a mandar. Os números estão em 📊 Progresso.</p>
+    </details>
+
+    <details>
+      <summary>🟠 Ligação ao Claude (API da Anthropic)</summary>
+      <p class="hint">A API é paga por uso e <b>separada</b> do plano Pro do claude.ai (o Pro não dá chave de API). Cria uma chave em <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>, carrega crédito e define um limite mensal de gasto. Passo a passo em GUIA_CLAUDE.md.</p>
+      <label>Chave Anthropic (fica só neste telemóvel)
+        <input id="ckeyIn" type="password" autocomplete="off" placeholder="sk-ant-…">
+      </label>
+      <label>Modelo
+        <input id="cmodelIn" list="cmodels">
+        <datalist id="cmodels"><option value="claude-sonnet-5-5"><option value="claude-haiku-5-5"><option value="claude-opus-5-5"><option value="claude-fable-5-1"></datalist>
+      </label>
+      <label>Esforço de raciocínio (menos = mais rápido e barato)
+        <select id="effortIn">
+          <option value="low">Baixo</option>
+          <option value="medium">Médio</option>
+          <option value="high">Alto</option>
+        </select>
+      </label>
+      <p class="hint">O Claude lê fotos e PDFs, calcula com código e pesquisa na web, mas <b>não vê vídeos</b>. A pesquisa por significado nos apontamentos é sempre do Gemini: se a chave Gemini estiver preenchida, os excertos e as perguntas vão à Google só para isso; sem ela, a pesquisa usa apenas palavras.</p>
+    </details>
+
+    <details open>
+      <summary>🔌 Ligação e testes</summary>
+      <label>Mensagens anteriores enviadas ao modelo
+        <input id="histIn" type="number" min="0" max="30" value="8">
+      </label>
+      <label>Proxy (opcional, esconde as chaves: ver proxy/README.md)
+        <input id="proxyIn" placeholder="https://o-teu-worker.workers.dev/v1beta">
+      </label>
+      <label>Token do proxy <input id="tokenIn" type="password" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" id="ocrAuto"> OCR automático de PDFs digitalizados com o Gemini ou os motores grátis (com o Claude pergunta sempre, porque gasta saldo)</label>
+      <p class="hint">Os testes abaixo usam o motor ativo: <b id="engNow">Gemini</b> (muda-o na barra lateral).</p>
+      <div class="row">
+        <button type="button" id="testKey">Testar ligação</button>
+        <button type="button" id="diagBtn">🩺 Diagnóstico</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>☁️ Google Drive (sincronizar telemóvel ↔ Mac)</summary>
+      <p class="hint">Opcional. Precisa de um Client ID (passo a passo em GUIA_DRIVE.md). Guarda numa pasta "AI Campus" do teu Drive: conversas, baralho, plano, progresso e os ficheiros carregados.</p>
+      <label>Google Client ID
+        <input id="gClient" placeholder="123456-abc.apps.googleusercontent.com" autocomplete="off">
+      </label>
+      <div class="row">
+        <button type="button" id="gConnect">Ligar</button>
+        <button type="button" id="gSync">🔄 Sincronizar</button>
+        <button type="button" id="gDisc">Desligar</button>
+      </div>
+      <p id="gStatus" class="hint"></p>
+    </details>
+
+    <details>
+      <summary>💾 Dados</summary>
+      <div class="row">
+        <button type="button" id="exportBtn">⬇️ Backup</button>
+        <button type="button" id="shareBtn">📤 Partilhar backup</button>
+        <button type="button" id="importBtn">⬆️ Importar</button>
+        <input type="file" id="importIn" accept="application/json" hidden>
+      </div>
+      <div class="row">
+        <button type="button" id="reindexBtn">🧠 Indexar por significado</button>
+        <button type="button" id="wipeBtn" class="danger">🗑️ Apagar tudo</button>
+      </div>
+    </details>
+
+    <p id="setMsg" class="hint"></p>
+    <div class="row foot"><button type="button" id="setCancel">Cancelar</button><button value="ok" class="primary">Guardar</button></div>
+  </form>
+</dialog>
+
+<dialog id="study">
+  <form method="dialog">
+    <h2>🃏 Estudar</h2>
+    <label>UC <select id="stUc"></select></label>
+    <div class="row">
+      <label>Tipo
+        <select id="stTipo">
+          <option value="quiz">📝 Quiz</option>
+          <option value="flash">🃏 Flashcards (criar baralho)</option>
+          <option value="rever">🔁 Rever cartas de hoje</option>
+          <option value="resumo">📄 Resumo de estudo</option>
+        </select>
+      </label>
+      <label>Quantos <select id="stN"><option>5</option><option>8</option><option>12</option></select></label>
+    </div>
+    <label>Tema (opcional) <input id="stTema" placeholder="ex.: valores próprios, caches, RGPD"></label>
+    <div id="stOut"></div>
+    <div class="row foot"><button value="x">Fechar</button><button type="button" id="stGo" class="primary">Gerar</button></div>
+  </form>
+</dialog>
+
+<dialog id="plan">
+  <form method="dialog">
+    <h2>📅 Plano de estudo</h2>
+    <div id="exList"></div>
+    <div class="row"><select id="exUc"></select><input id="exDate" type="date"></div>
+    <div class="row"><input id="exName" placeholder="Exame / frequência"><button type="button" id="exAdd">＋ Adicionar</button></div>
+    <div class="row"><button type="button" id="planGo" class="primary">✨ Gerar plano</button><button type="button" id="icsBtn">📆 Exportar .ics</button></div>
+    <p id="planMsg" class="hint"></p>
+    <div id="planOut"></div>
+    <div class="row foot"><button value="x">Fechar</button></div>
+  </form>
+</dialog>
+
+<dialog id="prog">
+  <form method="dialog">
+    <h2>📊 Progresso</h2>
+    <div id="progOut"></div>
+    <div class="row foot"><button value="x">Fechar</button></div>
+  </form>
+</dialog>
+
+<dialog id="semDlg">
+  <form method="dialog">
+    <h2>🎓 Semestres e UCs</h2>
+    <label>Semestre ativo <select id="semSel"></select></label>
+    <div class="row">
+      <label>Nome deste semestre <input id="semRen" maxlength="60"></label>
+      <button type="button" id="semDel" title="Só apaga semestres vazios">🗑️ Apagar</button>
+    </div>
+    <h3>UCs deste semestre</h3>
+    <div id="semUcs"></div>
+    <details id="ucFormBox">
+      <summary id="ucFormTit">＋ Acrescentar UC</summary>
+      <label>Nome da UC <input id="ucNome" list="ucCatalogo" maxlength="80" placeholder="ex.: Estruturas de Dados" autocomplete="off"></label>
+      <datalist id="ucCatalogo"></datalist>
+      <div class="row">
+        <label class="emoji-in">Emoji <input id="ucEmoji" maxlength="8" placeholder="📘"></label>
+        <label>Tipo de UC <select id="ucPerfil"></select></label>
+      </div>
+      <p id="ucPerfilDesc" class="hint"></p>
+      <label>Palavras-chave (para o modo automático saber que a pergunta é desta UC)
+        <input id="ucKw" placeholder="ex.: árvore, grafo, pilha, fila, hash" maxlength="400">
+      </label>
+      <label>Bibliografia / notas para o agente (opcional)
+        <textarea id="ucBack" rows="2" maxlength="600" placeholder="ex.: livro de Cormen; avaliação: 2 frequências"></textarea>
+      </label>
+      <div class="row"><button type="button" id="ucCancelar" hidden>Cancelar</button><button type="button" id="ucGuardar" class="primary">＋ Acrescentar</button></div>
+    </details>
+    <details>
+      <summary>🆕 Semestre novo</summary>
+      <p class="hint">No fim do semestre cria o seguinte e acrescenta as UCs novas. O anterior fica guardado (conversas, ficheiros, cartas e plano) e voltas a ele aqui quando quiseres.</p>
+      <div class="row"><input id="semNome" maxlength="60" placeholder="ex.: 1.º ano · 2.º semestre"><button type="button" id="semCriar" class="primary">Criar</button></div>
+    </details>
+    <p id="semMsg" class="hint" aria-live="polite"></p>
+    <div class="row foot"><button type="button" id="semExport" title="Guarda as UCs num ficheiro (para o Mac ou para cópia)">⬇️ ucs.json</button><button value="x" class="primary">Fechar</button></div>
+  </form>
+</dialog>
+
+<dialog id="fileDlg">
+  <form method="dialog">
+    <h2>✏️ Tipo e tema</h2>
+    <p id="fdNome" class="hint fd-nome"></p>
+    <label>Tipo <select id="fdTipo"></select></label>
+    <label>Tema / semana <input id="fdTema" list="temaList" maxlength="60" placeholder="ex.: Semana 3"></label>
+    <p class="hint">No Drive o ficheiro passa para a pasta nova na próxima sincronização; o Mac acompanha.</p>
+    <div class="row foot"><button value="x">Cancelar</button><button type="button" id="fdGuardar" class="primary">Guardar</button></div>
+  </form>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="core.js"></script>
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
