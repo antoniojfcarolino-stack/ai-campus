@@ -186,13 +186,14 @@
 
   // Um motor que fica calado demasiado tempo (sem enviar nada) não prende a app: ao fim de 2 minutos desiste com um erro
   // (no 🔁 Automático passa ao motor seguinte).
-  const SSE_IDLE_MS = 120000;
-  async function* sse(r) {
+  const SSE_IDLE_MS = 120000, POS_CODIGO_MS = 20000;
+  async function* sse(r, espera = () => SSE_IDLE_MS) {
     const reader = r.body.getReader(), dec = new TextDecoder();
     let buf = '';
     for (;;) {
       let timer;
-      const parado = new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error('O motor deixou de responder (2 minutos sem enviar nada). Tenta outra vez.'), { status: 504 })), SSE_IDLE_MS); });
+      const ms = espera();
+      const parado = new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error(`O motor deixou de responder (${Math.round(ms / 1000)} s sem enviar nada). Tenta outra vez.`), { status: 504, idle: true })), ms); });
       let res;
       try { res = await Promise.race([reader.read(), parado]); } catch (e) { reader.cancel().catch(() => {}); throw e; } finally { clearTimeout(timer); }
       const { done, value } = res;
@@ -208,23 +209,31 @@
     const out = { text: '', calcs: [], sources: [], searchHtml: '' };
     let finish = '', block = '';
     const r = await fetchGemini('streamGenerateContent?alt=sse', body, signal, model, S.key, retries);
-    for await (const ch of sse(r)) {
-      if (ch.promptFeedback?.blockReason) block = ch.promptFeedback.blockReason;
-      const cand = ch.candidates?.[0];
-      if (!cand) continue;
-      for (const p of cand.content?.parts || []) {
-        const ec = p.executableCode || p.executable_code, cr = p.codeExecutionResult || p.code_execution_result;
-        if (ec) out.calcs.push({ code: ec.code });
-        else if (cr) { const last = out.calcs[out.calcs.length - 1]; if (last) last.output = cr.output; else out.calcs.push({ output: cr.output }); }
-        else if (typeof p.text === 'string' && !p.thought) out.text += p.text;
+    // Depois de correr o código, o Gemini às vezes fica calado (ou acaba sem escrever nada): se em 20 s não vier texto,
+    // a app desiste deste pedido e fica com os cálculos; quem chamou pede a explicação à parte (askUC).
+    let espera = SSE_IDLE_MS;
+    try {
+      for await (const ch of sse(r, () => espera)) {
+        if (ch.promptFeedback?.blockReason) block = ch.promptFeedback.blockReason;
+        const cand = ch.candidates?.[0];
+        if (!cand) continue;
+        for (const p of cand.content?.parts || []) {
+          const ec = p.executableCode || p.executable_code, cr = p.codeExecutionResult || p.code_execution_result;
+          if (ec) { out.calcs.push({ code: ec.code }); espera = SSE_IDLE_MS; }
+          else if (cr) { const last = out.calcs[out.calcs.length - 1]; if (last) last.output = cr.output; else out.calcs.push({ output: cr.output }); espera = POS_CODIGO_MS; }
+          else if (typeof p.text === 'string' && !p.thought) { out.text += p.text; if (p.text.trim()) espera = SSE_IDLE_MS; }
+        }
+        const gm = cand.groundingMetadata;
+        if (gm) {
+          (gm.groundingChunks || []).forEach(c => { if (c.web && /^https?:/.test(c.web.uri) && !out.sources.some(s => s.uri === c.web.uri)) out.sources.push(c.web); });
+          if (gm.searchEntryPoint?.renderedContent) out.searchHtml = gm.searchEntryPoint.renderedContent;
+        }
+        if (cand.finishReason) finish = cand.finishReason;
+        onUpdate && onUpdate(out);
       }
-      const gm = cand.groundingMetadata;
-      if (gm) {
-        (gm.groundingChunks || []).forEach(c => { if (c.web && /^https?:/.test(c.web.uri) && !out.sources.some(s => s.uri === c.web.uri)) out.sources.push(c.web); });
-        if (gm.searchEntryPoint?.renderedContent) out.searchHtml = gm.searchEntryPoint.renderedContent;
-      }
-      if (cand.finishReason) finish = cand.finishReason;
-      onUpdate && onUpdate(out);
+    } catch (e) {
+      if (!(e.idle && out.calcs.length && !out.text.trim())) throw e;
+      out.text = ''; // (calou-se depois do cálculo: segue só com os cálculos)
     }
     if (!out.text && !out.calcs.length) throw new Error(block ? 'Pedido bloqueado pelo Gemini: ' + block : `Resposta vazia (${finish || 'sem motivo'}). Tenta reformular.`);
     if (finish === 'MAX_TOKENS') out.text += '\n\n*(resposta cortada por limite de tamanho — pede "continua")*';
