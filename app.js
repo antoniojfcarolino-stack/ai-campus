@@ -450,36 +450,69 @@
   }
 
   // ------------------------------------------------------------ embeddings (pesquisa por significado)
+  // O Gemini primeiro; com o proxy, o Workers AI (bge-m3) é a reserva quando o Gemini não tem modelo de embeddings ou falha.
+  // Cada excerto guarda o modelo que o calculou (embM): a pergunta usa sempre o mesmo modelo que os excertos.
+  const CF_EMB = '@cf/baai/bge-m3';
+  const isCfEmb = m => /^@cf\//.test(m || '');
   async function embModel() {
     if (S.embModel !== null) return S.embModel;
     if (!haveEmb()) return '';
     try {
       const r = await fetch(`${S.proxy || API}/models?pageSize=200`, { headers: authHeaders() });
-      if (!r.ok) return ''; // não guarda a falha: tenta outra vez mais tarde
-      const ms = ((await r.json()).models || []).filter(x => (x.supportedGenerationMethods || []).includes('batchEmbedContents'));
+      if (!r.ok) return S.proxy ? (S.embModel = CF_EMB) : ''; // sem proxy não guarda a falha: tenta outra vez mais tarde
+      const ms = ((await r.json()).models || []).filter(x => /embed/i.test((x.supportedGenerationMethods || []).join(' ')) || /embedding/i.test(x.name || ''));
       const m = ms.find(x => /gemini-embedding/i.test(x.name)) || ms[0];
-      return (S.embModel = m ? m.name.replace('models/', '') : '');
-    } catch (e) { return ''; }
+      return (S.embModel = m ? m.name.replace('models/', '') : (S.proxy ? CF_EMB : ''));
+    } catch (e) { return S.proxy ? CF_EMB : ''; }
   }
 
-  // Devolve os vetores que conseguiu calcular (pode ser menos que os textos se o limite de quota apertar).
-  async function embedTexts(texts, taskType, onProgress) {
-    const m = await embModel(); if (!m) return [];
-    const dim = /gemini-embedding/i.test(m) ? 768 : 0, out = [];
+  async function cfEmbed(texts) {
+    const r = await fetch(Core.proxyBase(S.proxy) + '/workersai/v1/embeddings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-app-token': S.token },
+      body: JSON.stringify({ model: CF_EMB, input: texts.map(t => String(t).slice(0, 6000)) }),
+    });
+    if (!r.ok) throw Object.assign(new Error('embeddings do Workers AI: erro ' + r.status), { status: r.status });
+    const d = ((await r.json()).data || []).sort((a, b) => a.index - b.index);
+    if (d.length !== texts.length || !d.every(e => Array.isArray(e.embedding) && e.embedding.length)) throw Object.assign(new Error('embeddings incompletos'), { status: 0 });
+    return d.map(e => Float32Array.from(e.embedding));
+  }
+
+  async function geminiEmbed(m, part, taskType) {
+    const dim = /gemini-embedding/i.test(m) ? 768 : 0;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const shape = S.embShape ?? 0;
+      try {
+        let es;
+        if (S.embOne) { // o modelo não aceita pedidos em lote: um a um
+          es = [];
+          for (const t of part) es.push((await (await fetchGemini('embedContent', Core.embedRequest(m, t, taskType, shape, dim), undefined, m, S.key, 0)).json()).embedding || {});
+        } else es = (await (await fetchGemini('batchEmbedContents', { requests: part.map(t => Core.embedRequest(m, t, taskType, shape, dim)) }, undefined, m, S.key, 0)).json()).embeddings || [];
+        if (es.length !== part.length || !es.every(e => e.values)) throw Object.assign(new Error('embeddings incompletos'), { status: 0 });
+        S.embShape = shape;
+        return es.map(e => Float32Array.from(e.values));
+      } catch (e) {
+        if (e.status === 400 && shape < 2) { S.embShape = shape + 1; continue; } // formato seguinte (campos antigos, depois sem opções)
+        if (e.status === 404 && !S.embOne) { S.embOne = true; continue; }
+        if (e.status === 429 && attempt < 3) { await sleep(20000); continue; }
+        throw e;
+      }
+    }
+    throw new Error('embeddings do Gemini indisponíveis');
+  }
+
+  // Devolve os vetores que conseguiu calcular (pode ser menos que os textos se o limite de quota apertar); o array traz
+  // em .model o modelo que os calculou. `want` força um modelo (o dos excertos, para a pergunta bater com eles).
+  async function embedTexts(texts, taskType, onProgress, want) {
+    let m = want || await embModel();
+    const out = []; out.model = m;
+    if (!m) return out;
     for (let i = 0; i < texts.length; i += 50) {
       const part = texts.slice(i, i + 50);
       let got = null;
-      for (let attempt = 0; attempt < 4 && !got; attempt++) {
-        const shape = S.embShape ?? 0;
-        try {
-          const r = await fetchGemini('batchEmbedContents', { requests: part.map(t => Core.embedRequest(m, t, taskType, shape, dim)) }, undefined, m, S.key, 0);
-          const es = (await r.json()).embeddings || [];
-          if (es.length !== part.length || !es.every(e => e.values)) throw Object.assign(new Error('embeddings incompletos'), { status: 0 });
-          got = es.map(e => Float32Array.from(e.values)); S.embShape = shape;
-        } catch (e) {
-          if (e.status === 400 && shape < 2) { S.embShape = shape + 1; continue; } // formato seguinte (campos antigos, depois sem opções)
-          if (e.status === 429 && attempt < 3) { await sleep(20000); continue; }
-          return out;
+      try { got = isCfEmb(m) ? await cfEmbed(part) : await geminiEmbed(m, part, taskType); } catch (e) {
+        // O Gemini falhou: com o proxy passa ao Workers AI (só se ainda não há vetores deste pedido e o modelo não foi imposto).
+        if (!isCfEmb(m) && S.proxy && !want && !out.length) {
+          try { got = await cfEmbed(part); m = out.model = S.embModel = CF_EMB; } catch (e2) { /* nenhum disponível */ }
         }
       }
       if (!got) return out;
@@ -492,7 +525,7 @@
   async function embedChunks(chunks, onProgress) {
     if (!chunks.length || !haveEmb()) return 0;
     const v = await embedTexts(chunks.map(c => c.text), 'RETRIEVAL_DOCUMENT', onProgress).catch(() => []);
-    v.forEach((e, i) => { chunks[i].emb = e; });
+    v.forEach((e, i) => { chunks[i].emb = e; chunks[i].embM = v.model; });
     return v.length;
   }
 
@@ -535,14 +568,23 @@
     if (!idx.N) return [];
     const bm = Core.search(idx, q, 8), chunks = idx.docs.map(d => d.c);
     if (chunks.some(c => c.emb)) {
-      const m = await embModel(), ek = m && 'e:' + Core.hashKey(m, Core.normQ(q)); // o vetor de uma pergunta repetida vem da cache
-      let qv = ek ? await cacheGet(ek) : undefined;
-      if (!Array.isArray(qv)) {
-        const v = await embedTexts([q], 'RETRIEVAL_QUERY');
-        qv = v.length ? Array.from(v[0]) : null;
-        if (qv && ek) cachePut(ek, 'emb', qv);
+      // A pergunta usa o modelo da maioria dos excertos (Gemini ou Workers AI; os antigos, sem embM, são do Gemini):
+      // vetores de modelos diferentes não se comparam.
+      const grupo = c => (isCfEmb(c.embM) ? c.embM : 'gemini'), conta = new Map();
+      chunks.forEach(c => { if (c.emb) conta.set(grupo(c), (conta.get(grupo(c)) || 0) + 1); });
+      const g = [...conta].sort((a, b) => b[1] - a[1])[0][0];
+      const ativo = await embModel();
+      const m = g !== 'gemini' ? g : (chunks.find(c => c.emb && c.embM && !isCfEmb(c.embM))?.embM || (isCfEmb(ativo) ? '' : ativo));
+      if (m) {
+        const ek = 'e:' + Core.hashKey(m, Core.normQ(q)); // o vetor de uma pergunta repetida vem da cache
+        let qv = await cacheGet(ek);
+        if (!Array.isArray(qv)) {
+          const v = await embedTexts([q], 'RETRIEVAL_QUERY', null, m);
+          qv = v.length && v.model === m ? Array.from(v[0]) : null;
+          if (qv) cachePut(ek, 'emb', qv);
+        }
+        if (qv) return Core.fuse([bm, Core.semSearch(chunks.filter(c => c.emb && grupo(c) === g), qv, 8)], k);
       }
-      if (qv) return Core.fuse([bm, Core.semSearch(chunks, qv, 8)], k);
     }
     return bm.slice(0, k);
   }
@@ -1410,7 +1452,7 @@
     lset('ckey', S.ckey); lset('cmodel', S.cmodel); lset('geffort', S.effort);
     lset('okey', S.okey); lset('tkey', S.tkey); lset('akey', S.akey); lset('skey', S.skey); jset('chain', S.chain);
     lset('gocr', S.ocrAuto ? '1' : '0'); lset('gclient', D.clientId);
-    S.embModel = null; S.embShape = undefined; S.idx.clear(); S.cdrop = noCdrop(); // as definições novas podem já aceitar o que antes foi recusado
+    S.embModel = null; S.embShape = undefined; S.embOne = false; S.idx.clear(); S.cdrop = noCdrop(); // as definições novas podem já aceitar o que antes foi recusado
     S.cstate.auth = {}; S.cstate.bad = {}; saveCState(); // chaves e modelos novos: volta a experimentar (os limites atingidos mantêm-se)
     toast('Definições guardadas.');
   }
@@ -1477,7 +1519,7 @@
         }
       }
       // A pesquisa por significado é sempre do Gemini (o Claude não tem embeddings): com o Claude só existe se houver chave Gemini.
-      if (!isClaude() || haveEmb()) await t(isClaude() ? 'Embeddings (Gemini)' : 'Embeddings', async () => { if (!(await embedTexts(['teste'], 'RETRIEVAL_QUERY')).length) throw new Error('indisponível (a pesquisa fica só por palavras)'); return ` (${S.embModel})`; });
+      if (!isClaude() || haveEmb()) await t(isClaude() ? 'Embeddings (Gemini)' : 'Embeddings', async () => { const v = await embedTexts(['teste'], 'RETRIEVAL_QUERY'); if (!v.length) throw new Error('indisponível (a pesquisa fica só por palavras)'); return ` (${isCfEmb(v.model) ? 'Workers AI · ' + v.model : v.model})`; });
       else lines.push('ℹ️ Pesquisa por significado: sem chave Gemini a pesquisa nos apontamentos usa só palavras (os embeddings são do Gemini).');
     }); } finally { S.diag = false; }
     m.textContent = lines.join('\n');
@@ -1507,7 +1549,7 @@
   async function makeBackup() {
     const s = await collectState();
     s.chats = await DB.all('chats'); // o backup manual mantém as imagens das conversas
-    s.chunks = Core.sortChunks(await DB.all('chunks')).map(({ emb, ...c }) => c);
+    s.chunks = Core.sortChunks(await DB.all('chunks')).map(({ emb, embM, ...c }) => c);
     return s;
   }
   const backupName = () => `ai-campus-backup-${Core.dayKey(Date.now())}.json`;
@@ -1702,7 +1744,7 @@
           delete f.mover; dirty = true;
         }
         if (!f.idxId) {
-          const cs = Core.sortChunks(await DB.byIndex('chunks', 'fileId', f.id)).map(({ emb, ...c }) => c);
+          const cs = Core.sortChunks(await DB.byIndex('chunks', 'fileId', f.id)).map(({ emb, embM, ...c }) => c);
           if (cs.length) { f.idxId = await driveUpload({ name: `chunks-${f.id}.json`, blob: new Blob([JSON.stringify(cs)], { type: 'application/json' }), parent: await drivePath(['index']) }); dirty = true; }
         }
         if (dirty) await DB.put('files', f);
@@ -1995,6 +2037,19 @@
       for (const f of e.target.files) { try { S.images.push(await compressImage(f)); } catch (err) { toast('Não consegui ler a imagem.'); } }
       e.target.value = ''; renderChips();
     };
+    // 📷 Capturas de ecrã também se colam (⌘V / Ctrl+V, ou «Colar» no teclado do telemóvel) ou se arrastam para a caixa da pergunta.
+    const addImgs = async fs => {
+      const imgs = fs.filter(f => f && /^image\//.test(f.type));
+      for (const f of imgs) { try { S.images.push(await compressImage(f)); } catch (err) { toast('Não consegui ler a imagem.'); } }
+      if (imgs.length) { renderChips(); toast(`📷 ${imgs.length} imagem(ns) junta(s) à pergunta`, 2500); }
+      return imgs.length;
+    };
+    $('#input').addEventListener('paste', e => {
+      const fs = [...(e.clipboardData?.items || [])].filter(it => it.kind === 'file').map(it => it.getAsFile());
+      if (fs.some(f => f && /^image\//.test(f.type))) { e.preventDefault(); addImgs(fs); }
+    });
+    $('#composer').addEventListener('dragover', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+    $('#composer').addEventListener('drop', e => { const fs = [...(e.dataTransfer?.files || [])]; if (fs.length) { e.preventDefault(); addImgs(fs); } });
 
     const input = $('#input');
     input.oninput = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; };

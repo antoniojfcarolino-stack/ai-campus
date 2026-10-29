@@ -853,14 +853,14 @@
     workersai: { nome: 'Cloudflare', icon: '☁️', url: '', proxy: '/workersai/v1/chat/completions', cors: false, scope: 'provider', maxTokens: 1500, maxChars: 14000 },
   };
   // Os mais fortes primeiro; os leves (rápidos, com mais pedidos por dia) servem de reserva e fazem as tarefas pequenas.
+  // O Groq vem primeiro (o mais rápido); o Gemini Flash logo a seguir (o único com Python e que vê imagens/PDFs: a cadeia salta
+  // para ele quando a pergunta precisa disso). O Mistral saiu: deixou de ter plano grátis na API (podes acrescentá-lo à mão).
   const DEFAULT_CHAIN = [
-    { p: 'gemini', m: 'gemini-flash-latest' },
-    { p: 'mistral', m: 'mistral-large-latest' },
     { p: 'groq', m: 'openai/gpt-oss-120b' },
+    { p: 'gemini', m: 'gemini-flash-latest' },
     { p: 'openrouter', m: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
     { p: 'gemini', m: 'gemini-3.5-flash-lite' },
     { p: 'groq', m: 'qwen/qwen3.8-27b' },
-    { p: 'mistral', m: 'mistral-small-latest' },
     { p: 'workersai', m: '@cf/meta/llama-4-scout-17b-16e-instruct' },
   ];
   const MODEL_HINTS = {
@@ -997,6 +997,7 @@
   // 'policy' (definições de privacidade da conta), 'model' (modelo não existe), 'feature' (recusou ferramentas/imagens/parâmetros:
   // tenta sem eles), 'toolarge' (pedido grande demais para este motor) ou 'bad' (outro erro: só este pedido).
   // info = { status, message, body, headers: { retryAfter (s), reset (ms) }, via: 'direct'|'proxy' }
+  const OCUPADO_MS = 10 * 60000;
   function classifyError(p, info, now) {
     const st = +info.status || 0, msg = String(info.message || errMessageOf(info.body) || ''), low = msg.toLowerCase();
     const h = info.headers || {};
@@ -1036,6 +1037,10 @@
     if (/extra inputs|unrecognized|unknown (field|parameter|argument)|not permitted|unsupported (parameter|value)/.test(low)) what.push('extras');
     if ([400, 404, 422].includes(st) && what.length) return { kind: 'feature', what, why: `não aceitou: ${what.join(', ')}` };
     if (st === 404 || /(invalid|unknown|not a valid) model|model.{0,40}(not found|does not exist|not available|invalid|decommissioned)|no endpoints found/.test(low)) return { kind: 'model', why: 'modelo não existe ou já não está disponível' };
+    // Sobrecarregado ou pendurado (503 «high demand», 504/524 = não respondeu a tempo): fica de lado 10 minutos, para as
+    // perguntas seguintes não esperarem por ele outra vez.
+    if ([503, 504, 524, 529].includes(st) || info.idle || /overloaded|high demand|temporarily unavailable/.test(low))
+      return { kind: 'down', until: now + OCUPADO_MS, why: `sobrecarregado${st ? ` (${st})` : ''}: fica de lado 10 min` };
     if (st >= 500 || st === 408) return { kind: 'down', until: now + 60000, why: `erro temporário (${st})` };
     return { kind: 'bad', why: `erro ${st}${msg ? ': ' + msg.slice(0, 160) : ''}` };
   }
