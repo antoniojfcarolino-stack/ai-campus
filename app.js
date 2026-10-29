@@ -665,6 +665,12 @@
           chunks = await indexPdf(f, rec);
           if (rec.noIndex) toast('Leitor de PDF indisponível (offline?). Guardei o ficheiro; usa 📌 para o enviar inteiro.', 6000);
           else if (!chunks.length) toast(`PDF sem texto legível. Ativa o OCR automático nas definições ou usa 📌 para o enviar inteiro ao ${engineName()}.`, 7000);
+        } else if (Core.isOffice(f.name)) { // PowerPoint / Word: o texto de cada diapositivo / página fica pesquisável
+          toast(`A ler ${f.name}…`, 8000);
+          const pgs = await Core.officePages(await f.arrayBuffer(), f.name);
+          rec.pages = pgs.length;
+          pgs.forEach((t, i) => { rec.chars += t.length; Core.chunkText(t).forEach(x => chunks.push({ id: uuid(), fileId: rec.id, uc, name: f.name, page: i + 1, n: chunks.length, text: x })); });
+          if (!chunks.length) toast(`${f.name}: não encontrei texto (só imagens?). Exporta-o para PDF e usa o OCR, ou 📌 para o enviar.`, 7000);
         } else if (kind === 'video') {
           if (f.size > MAX_INLINE) toast('Vídeo grande: só dá para enviar até ~15 MB. Para aulas longas, cola o link do YouTube na pergunta.', 7000);
         } else if (kind === 'image') { // guardada mais leve (até 2000 px) e lida por OCR, como as páginas digitalizadas
@@ -1022,6 +1028,11 @@
   }
 
   // Partes do pedido no formato "Gemini" ({text} | {inline_data} | {file_data}); Core.claudeContent e Core.oaContent convertem-nas.
+  async function officeText(f) { // PowerPoint / Word fixado: o texto, com o número do diapositivo / página
+    const pgs = await Core.officePages(await f.blob.arrayBuffer(), f.name), slide = /\.pptx$/i.test(f.name);
+    return pgs.map((t, i) => `[${slide ? 'diapositivo' : 'página'} ${i + 1}]\n${t}`).join('\n\n');
+  }
+
   async function userParts(text, hits, primary, ext = '') {
     const main = { text: (hits.length ? `EXCERTOS DOS APONTAMENTOS:\n${Core.formatContext(hits)}\n\n` : '') + (ext ? `${ext}\n\n` : '') + 'PERGUNTA: ' + text };
     if (!primary) return [main];
@@ -1034,6 +1045,7 @@
       total += f.blob.size;
       if (total > MAX_INLINE) throw new Error('Os ficheiros fixados (📌) passam o limite de ~18 MB por pedido. Remove algum.');
       const pdf = f.name.toLowerCase().endsWith('.pdf'), img = f.kind === 'image';
+      if (Core.isOffice(f.name)) { files.push({ text: `FICHEIRO FIXADO (${f.name}):\n${await officeText(f)}` }); continue; }
       if (isClaude()) {
         if (f.kind === 'video') throw new Error(`O Claude não vê vídeos ("${f.name}" está fixado com 📌). Muda o motor para Gemini ou tira o 📌.`);
         if (pdf) extra.push({ inline_data: { mime_type: 'application/pdf', data: await blobToB64(f.blob) } });
@@ -1047,7 +1059,7 @@
       if (isAuto() && pdf) { const alt = await pdfAlt(f); if (alt) part.alt = alt; } // o Gemini lê o PDF; os outros, o texto dele
       extra.push(part);
     }
-    return isClaude() || isAuto() ? [...files, main, ...extra] : [main, ...extra];
+    return [...files, main, ...extra]; // (no Gemini, files só tem PowerPoint/Word: o resto vai em extra)
   }
 
   async function askUC(k, text, hist, primary, onUpdate, signal) {

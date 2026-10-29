@@ -545,6 +545,87 @@
     return normSemestres({ atual: B.atualUpd > A.atualUpd ? B.atual : A.atual, atualUpd: Math.max(A.atualUpd, B.atualUpd), apagados, lista: ordem.map(id => m.get(id)) });
   }
 
+  // ---------------------------------------------------------------- PowerPoint (.pptx) e Word (.docx)
+  // São ficheiros ZIP com XML lá dentro: lê-se o índice do ZIP, descomprime-se só o que interessa (DecompressionStream, do
+  // browser e do Node) e tira-se o texto. PowerPoint: uma «página» por diapositivo, pela ordem da apresentação, com as notas
+  // do orador. Word: uma página por cada quebra de página que o Word gravou (sem elas, o documento todo numa).
+  const OFFICE_RE = /\.(docx|pptx)$/i;
+  const isOffice = name => OFFICE_RE.test(String(name || ''));
+  function zipIndex(u8) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let e = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('não é um ficheiro do Office válido (ZIP estragado)');
+    const n = dv.getUint16(e + 10, true), dec = new TextDecoder(), out = new Map();
+    let off = dv.getUint32(e + 16, true);
+    for (let k = 0; k < n && off + 46 <= u8.length && dv.getUint32(off, true) === 0x02014b50; k++) {
+      const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true);
+      const nlen = dv.getUint16(off + 28, true), xlen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), loff = dv.getUint32(off + 42, true);
+      out.set(dec.decode(u8.subarray(off + 46, off + 46 + nlen)), { method, csize, loff });
+      off += 46 + nlen + xlen + clen;
+    }
+    return out;
+  }
+  async function zipRead(u8, idx, name) {
+    const e = idx.get(name);
+    if (!e) return null;
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    const start = e.loff + 30 + dv.getUint16(e.loff + 26, true) + dv.getUint16(e.loff + 28, true), raw = u8.subarray(start, start + e.csize);
+    if (e.method === 0) return new TextDecoder().decode(raw);
+    if (e.method !== 8) return null;
+    const ds = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new TextDecoder().decode(await new Response(ds).arrayBuffer());
+  }
+  const xmlDecode = s => s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos));/gi, (m, d, h, n) =>
+    d ? String.fromCodePoint(+d) : h ? String.fromCodePoint(parseInt(h, 16)) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[n.toLowerCase()]);
+  // Texto de um bloco de XML do Office: um parágrafo por linha; tabulações e quebras de linha respeitadas.
+  function xmlParas(xml, ns) {
+    const tok = /<\w+:t(?:\s[^>]*)?>([^<]*)<\/\w+:t>|<\w+:(tab|br)\b[^>]*\/>/g;
+    return (xml.match(new RegExp(`<${ns}:p[\\s>][\\s\\S]*?</${ns}:p>`, 'g')) || [])
+      .map(p => { let t = ''; for (const m of p.matchAll(tok)) t += m[2] === 'tab' ? '\t' : m[2] === 'br' ? '\n' : xmlDecode(m[1]); return t.replace(/[  ]+$/g, ''); })
+      .filter(t => t.trim());
+  }
+  async function docxPages(u8, idx) {
+    const xml = await zipRead(u8, idx, 'word/document.xml');
+    if (!xml) throw new Error('documento do Word sem texto (word/document.xml em falta)');
+    const body = xml.replace(/<w:lastRenderedPageBreak\/>|<w:br\b[^>]*w:type="page"[^>]*\/>/g, '</w:p>\u0003<w:p>');
+    return body.split('\u0003').map(part => xmlParas(part, 'w').join('\n')).filter(t => t.trim());
+  }
+  async function pptxPages(u8, idx) {
+    const rels = async name => {
+      const x = await zipRead(u8, idx, name) || '', m = new Map();
+      for (const r of x.matchAll(/<Relationship\b[^>]*>/g)) {
+        const id = (r[0].match(/\bId="([^"]+)"/) || [])[1], t = (r[0].match(/\bTarget="([^"]+)"/) || [])[1];
+        if (id && t) m.set(id, t);
+      }
+      return m;
+    };
+    const pres = await zipRead(u8, idx, 'ppt/presentation.xml') || '', prel = await rels('ppt/_rels/presentation.xml.rels');
+    let slides = [...pres.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g)].map(m => prel.get(m[1])).filter(Boolean)
+      .map(t => 'ppt/' + t.replace(/^\/?ppt\//, '').replace(/^\.\//, ''));
+    if (!slides.length) slides = [...idx.keys()].filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => +a.match(/(\d+)\.xml$/)[1] - +b.match(/(\d+)\.xml$/)[1]);
+    const out = [];
+    for (const sl of slides) {
+      const xml = await zipRead(u8, idx, sl);
+      if (xml == null) continue;
+      let txt = xmlParas(xml, 'a').join('\n');
+      const srel = await rels(sl.replace(/slides\/(slide\d+\.xml)$/, 'slides/_rels/$1.rels'));
+      const nt = [...srel.values()].find(t => /notesSlide/.test(t));
+      if (nt) {
+        const nx = await zipRead(u8, idx, 'ppt/' + nt.replace(/^(\.\.\/)+/, '').replace(/^\/?ppt\//, ''));
+        const notas = nx ? xmlParas(nx, 'a').filter(t => !/^(\d+|<number>|‹#›)$/.test(t.trim())).join('\n') : '';
+        if (notas.trim()) txt += `\n[Notas do orador] ${notas}`;
+      }
+      out.push(txt);
+    }
+    return out;
+  }
+  // Ficheiro (ArrayBuffer ou Uint8Array) -> texto de cada página/diapositivo.
+  async function officePages(buf, name) {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), idx = zipIndex(u8);
+    return /\.pptx$/i.test(name) ? pptxPages(u8, idx) : docxPages(u8, idx);
+  }
+
   // ---------------------------------------------------------------- Biblioteca: tipo e tema (semana, capítulo…) de cada ficheiro
   const TIPOS = { teoria: '📘 Teoria', exercicios: '✏️ Exercícios', videos: '🎬 Vídeos', imagens: '🖼️ Imagens', outros: '📎 Outros' };
   const IMG_RE = /\.(png|jpe?g|webp|gif|heic|heif)$/i, VID_RE = /\.(mp4|mov|webm|m4v)$/i;
@@ -1455,7 +1536,7 @@
 
   return { UCS, byKey, ucLabel, isActive, pastaOf, PERFIS, DEFAULT_UCS, CATALOGO_UCS, SEM_BASE, defaultSemestres, normUC, normSemestres, completeUC,
     setSemestres, semestres, semAtual, semKeys, semOf, newUC, mergeSemestres, slugUC,
-    TIPOS, kindOf, tipoAuto, fileTipo, cleanTema, driveParts, sortFiles, temasOf,
+    TIPOS, kindOf, tipoAuto, fileTipo, cleanTema, driveParts, sortFiles, temasOf, isOffice, officePages, zipIndex,
     HUMANO_RULES, EXEMPLOS_TOM, FB_TIPOS, normAluno, mergeAluno, prefsAluno, alunoPrompt, exemplosTom, limparTiques, FACTOS_SYSTEM, factosPrompt, parseFactos, ESTILOS, systemPrompt, norm, tokenize, chunkText, sortChunks, buildIndex, search, formatContext,
     cosine, semSearch, fuse, sm2, dayKey, streak, progress, studyPrompt, summaryPrompt, planPrompt, buildICS,
     normPlan, mergeSync, routeFallback, routeConfident, routerPrompt, parseRoute, parseJSON, cleanHistory, buildBody,
