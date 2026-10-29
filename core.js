@@ -301,7 +301,8 @@
     return res.sort((a, b) => b.score - a.score).slice(0, k);
   }
 
-  const formatContext = hits => hits.map(h => `[${h.chunk.name}, p. ${h.chunk.page}]\n${h.chunk.text}`).join('\n\n');
+  // (as transcrições de vídeos que vêm do Mac trazem «rot»: «min 12» em vez da página)
+  const formatContext = hits => hits.map(h => `[${h.chunk.name}, ${h.chunk.rot || `p. ${h.chunk.page}`}]\n${h.chunk.text}`).join('\n\n');
 
   // ---------------------------------------------------------------- Pesquisa semântica + fusão
   function cosine(a, b) {

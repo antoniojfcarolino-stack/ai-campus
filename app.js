@@ -1020,7 +1020,7 @@
     if (!cs.length) return '';
     let t = `FICHEIRO FIXADO (${f.name}, texto extraído):`, page = 0;
     for (const c of cs) {
-      if (c.page !== page) { t += `\n[p. ${c.page}] `; page = c.page; }
+      if (c.page !== page) { t += `\n[${c.rot || `p. ${c.page}`}] `; page = c.page; }
       t += c.text + ' ';
       if (t.length > 60000) { t += '…'; break; }
     }
