@@ -264,8 +264,9 @@
         throw new Error('Sem ligação ao Claude (internet, bloqueio do browser ou do proxy). Em ⚙️ Definições → 🩺 Diagnóstico vês o motivo.');
       }
       if (r.ok) return r;
-      let j = null;
-      try { j = await r.json(); } catch (e) { /* sem corpo JSON */ }
+      let j = null, txt = '';
+      try { txt = await r.text(); j = JSON.parse(txt); } catch (e) { /* sem corpo JSON: o proxy responde em texto (ex.: chave em falta) */ }
+      if (!j && txt) j = { error: { message: txt.slice(0, 300) } };
       if (r.status === 400 && !stripped && !noFallback) { // opção extra recusada (raciocínio, esforço, ferramentas): tenta uma vez sem ela
         const alt = Core.claudeStrip(cur, j && j.error && j.error.message);
         if (alt) { stripped = true; cur = alt.body; alt.what.forEach(w => { S.cdrop[w] = true; toast(CLAUDE_EXTRAS[w], 7000); }); continue; }

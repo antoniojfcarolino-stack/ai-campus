@@ -769,6 +769,7 @@
 
   function claudeErrorText(status, payload, ctx = {}) {
     const msg = String((payload && payload.error && payload.error.message) || '');
+    if (ctx.proxy && /ANTHROPIC_API_KEY em falta/i.test(msg)) return 'A chave do Claude não está no proxy: no Cloudflare, ai-campus-proxy → Settings → Variables and Secrets, acrescenta ANTHROPIC_API_KEY (Secret) e faz Deploy.';
     if (ctx.proxy && status === 401) return 'Token do proxy errado. Verifica em ⚙️ Definições.';
     if (ctx.proxy && status === 403) return 'O proxy recusou o pedido (origem não permitida, ou o worker.js não tem a rota do Claude: atualiza-o, ver proxy/README.md).';
     if (status === 402 || /credit balance|billing/i.test(msg)) return 'Sem saldo na conta da API Anthropic. Carrega crédito em platform.claude.com → Billing (o plano Pro do claude.ai não inclui a API).';
