@@ -809,11 +809,11 @@
     if (!doSemestre.length) box.innerHTML = '<p class="hint">Ainda sem conversas.</p>';
     doSemestre.forEach(c => {
       const d = document.createElement('div'); d.className = 'item' + (S.chat && S.chat.id === c.id ? ' on' : '');
-      d.innerHTML = `<span class="t">${Core.esc(c.title)}</span><button aria-label="apagar">✕</button>`;
+      d.innerHTML = `<span class="t">${c.from === 'mac' ? '<span title="Começada no Mac">💻</span> ' : ''}${Core.esc(c.title)}</span><button aria-label="apagar">✕</button>`;
       d.onclick = () => { openChat(c); closeSide(); };
       d.querySelector('button').onclick = async e => {
         e.stopPropagation();
-        if (!confirm('Apagar esta conversa?')) return;
+        if (!confirm(c.from === 'mac' ? 'Apagar esta conversa? (sai também do Mac)' : 'Apagar esta conversa?')) return;
         await DB.del('chats', c.id); tombAdd('chat', c.id);
         if (S.chat && S.chat.id === c.id) newChat();
         loadChats(); markDirty();
@@ -845,11 +845,12 @@
     const calcs = (m.calcs || []).map(c => `<details class="calc"><summary>🧮 Cálculo executado</summary>${c.code ? `<pre><code>${Core.esc(c.code)}</code></pre>` : ''}${c.output ? `<pre><code>${Core.esc(c.output)}</code></pre>` : ''}</details>`).join('');
     const safe = (m.sources || []).filter(s => /^https?:\/\//i.test(s.uri || ''));
     const src = safe.length ? `<div class="sources">Fontes: ${safe.map(s => `<a href="${Core.esc(s.uri)}" target="_blank" rel="noopener">${SRC_ICON[s.kind] ? SRC_ICON[s.kind] + ' ' : ''}${Core.esc(s.title || 'link')}</a>`).join(' · ')}</div>` : '';
+    const fontesMac = Array.isArray(m.fontes) && m.fontes.length ? `<div class="sources">📚 Dos teus apontamentos (no Mac): ${m.fontes.filter(x => typeof x === 'string').map(x => Core.esc(x)).join(' · ')}</div>` : '';
     const sugg = m.searchHtml ? `<iframe class="sugg" sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${Core.esc('<base target="_blank">' + m.searchHtml)}"></iframe>` : '';
     const fb = !String(m.content || '').startsWith('*(interrompido)') ? `<button data-act="up" class="fb${m.fb === 'up' ? ' on' : ''}" title="Gostei: as próximas respostas vão neste tom" aria-label="gostei">👍</button><button data-act="down" class="fb${m.fb === 'down' ? ' on' : ''}" title="Não gostei" aria-label="não gostei">👎</button>` : '';
     const why = m.fb === 'down' && !m.fbWhy ? `<div class="fbwhy">O que falhou? ${['longa', 'curta', 'confusa', 'artificial', 'errada'].map(t => `<button data-why="${t}">${Core.FB_TIPOS[t]}</button>`).join('')}</div>` : '';
     const acts = !live && m.content && !m.error ? `<div class="acts">${fb}<button data-act="copy">📋</button><button data-act="md">⬇️ .md</button><button data-act="pdf">🖨️ PDF</button>${m.cached ? '<button data-act="redo" title="Pedir uma resposta nova (sem a cache)">🔄 Nova resposta</button>' : ''}</div>${why}` : '';
-    el.innerHTML = tags + `<div class="md${live ? ' cursor' : ''}">${rich(m.content || m.status || '…')}</div>` + calcs + verifyHtml(m.verify) + src + sugg + acts;
+    el.innerHTML = tags + `<div class="md${live ? ' cursor' : ''}">${rich(m.content || m.status || '…')}</div>` + calcs + verifyHtml(m.verify) + src + fontesMac + sugg + acts;
   }
   // O resultado da verificação das contas (feita por um segundo motor grátis).
   function verifyHtml(v) {
@@ -867,7 +868,16 @@
     const el = document.createElement('div'); el.className = `msg ${m.role}`; el.dataset.i = S.chat.messages.indexOf(m);
     if (m.role === 'user') {
       (m.imgs || []).forEach(u => { const i = document.createElement('img'); i.src = u; i.className = 'att'; el.appendChild(i); });
-      const t = document.createElement('div'); t.style.whiteSpace = 'pre-wrap'; t.textContent = m.content; el.appendChild(t);
+      const t = document.createElement('div'); t.style.whiteSpace = 'pre-wrap';
+      // 💻 pergunta feita no Mac com capturas de ecrã: o texto curto e, à parte, o que o Gemini leu das capturas
+      const caps = Array.isArray(m.capturas) ? m.capturas.filter(x => typeof x === 'string') : [];
+      t.textContent = caps.length && typeof m.mostrar === 'string' && m.mostrar ? m.mostrar.replace(/\*/g, '').replace(/ +\n/g, '\n') : m.content;
+      el.appendChild(t);
+      if (caps.length) {
+        const d = document.createElement('details'); d.className = 'calc';
+        d.innerHTML = `<summary>📷 ${caps.length} captura(s) de ecrã: o que o Gemini leu</summary>` + caps.map((x, k) => `<div class="md"><b>Captura ${k + 1}</b>${rich(x)}</div>`).join('');
+        el.appendChild(d);
+      }
     } else paintAssistant(el, m, live);
     $('#msgs').appendChild(el);
     return el;
@@ -1592,6 +1602,9 @@
       chatsOut.push(c);
     }
     if (chatsOut.length) await DB.putMany('chats', chatsOut);
+    // 🔄 a conversa aberta foi continuada noutro aparelho (ex.: no Mac): mostra já a versão nova
+    const aberta = S.chat && chatsOut.find(c => c.id === S.chat.id);
+    if (aberta && !S.busy) { S.chat = aberta; paintChat(); }
     if (m.cards.length) await DB.putMany('cards', m.cards);
     const oldFiles = new Map((await DB.all('files')).map(f => [f.id, f]));
     let libChanged = false;

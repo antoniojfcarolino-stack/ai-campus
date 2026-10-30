@@ -1497,15 +1497,49 @@
     }
     return out;
   }
+  // 💬 As conversas do Mac (do-mac.json, conversas_telemovel.py): no formato do telemóvel, com os campos do Mac também (para
+  // voltarem ao Mac sem perder nada). Verifica os tipos de tudo o que o ecrã usa; as apagadas no Mac vêm em tomb («chat:<id>»).
+  const CHAT_ID_RE = /^[\w-]{6,64}$/;
+  const strs = (a, n = 40) => (Array.isArray(a) ? a.filter(x => typeof x === 'string').slice(0, n) : []);
+  function cleanChatMsg(m) {
+    if (!m || typeof m !== 'object' || (m.role !== 'user' && m.role !== 'assistant') || typeof m.content !== 'string') return null;
+    const x = { ...m };
+    delete x.imgs;
+    for (const k of ['ucs', 'by', 'tried', 'fontes', 'capturas']) { if (k in x) x[k] = strs(x[k]); }
+    for (const k of ['sources', 'calcs']) { if (k in x) x[k] = Array.isArray(x[k]) ? x[k].filter(o => o && typeof o === 'object') : []; }
+    if ('verify' in x && !(x.verify && typeof x.verify === 'object' && typeof x.verify.v === 'string')) delete x.verify;
+    for (const k of ['mostrar', 'fbWhy', 'searchHtml', 'engine', 'status']) { if (k in x && typeof x[k] !== 'string') delete x[k]; }
+    if ('fb' in x && x.fb !== 'up' && x.fb !== 'down') delete x.fb;
+    if ('cached' in x && !Number.isFinite(+x.cached)) delete x.cached;
+    return x;
+  }
+  function macChats(mac) {
+    const out = { chats: [], tomb: {} };
+    if (!mac || typeof mac !== 'object' || mac.app !== 'ai-campus' || mac.from !== 'mac') return out;
+    for (const c of Array.isArray(mac.chats) ? mac.chats : []) {
+      if (!c || typeof c !== 'object' || !CHAT_ID_RE.test(String(c.id)) || !Array.isArray(c.messages)) continue;
+      const messages = c.messages.slice(0, 600).map(cleanChatMsg).filter(Boolean);
+      if (!messages.some(m => m.role === 'user')) continue;
+      const t = (typeof c.title === 'string' && c.title.trim() ? c.title : messages[0].content).replace(/\s+/g, ' ').trim();
+      out.chats.push({ id: String(c.id), title: t.slice(0, 120) || 'Conversa', messages, updated: Math.max(0, +c.updated || 0),
+        sem: SEM_ID_RE.test(String(c.sem || '')) ? c.sem : SEM_BASE, ...(c.from === 'mac' ? { from: 'mac' } : {}) });
+    }
+    for (const [k, v] of Object.entries(mac.tomb && typeof mac.tomb === 'object' ? mac.tomb : {})) {
+      if (/^chat:[\w-]{6,64}$/.test(k) && Number.isFinite(+v) && +v > 0) out.tomb[k] = +v;
+    }
+    return out;
+  }
+
   // Junta-os ao estado remoto (o do Drive) antes da fusão normal.
   function withMac(remote, mac) {
     const r = remote && typeof remote === 'object' ? { ...remote } : { app: 'ai-campus', version: 3 };
-    const m = macFiles(mac), tomb = { ...(r.tomb || {}) };
-    for (const [k, v] of Object.entries(m.tomb)) tomb[k] = Math.max(tomb[k] || 0, v);
+    const m = macFiles(mac), mc = macChats(mac), tomb = { ...(r.tomb || {}) };
+    for (const [k, v] of Object.entries({ ...m.tomb, ...mc.tomb })) tomb[k] = Math.max(tomb[k] || 0, v);
     // 🎓 os semestres do Mac (criados lá, ou os do telemóvel que o Mac já tinha): o mais recente de cada um ganha
     const sem = mac && mac.app === 'ai-campus' && mac.from === 'mac' && mac.semestres && typeof mac.semestres === 'object' ? mergeSemestres(r.semestres, mac.semestres) : r.semestres;
     const al = mac && mac.app === 'ai-campus' && mac.from === 'mac' && mac.aluno && typeof mac.aluno === 'object' ? mergeAluno(r.aluno, mac.aluno) : r.aluno;
-    return { ...r, files: [...(Array.isArray(r.files) ? r.files : []), ...m.files], tomb, ...(sem ? { semestres: sem } : {}), ...(al ? { aluno: al } : {}) };
+    return { ...r, files: [...(Array.isArray(r.files) ? r.files : []), ...m.files], chats: [...(Array.isArray(r.chats) ? r.chats : []), ...mc.chats],
+      tomb, ...(sem ? { semestres: sem } : {}), ...(al ? { aluno: al } : {}) };
   }
 
   // ---------------------------------------------------------------- Markdown + LaTeX
@@ -1553,5 +1587,5 @@
     openAlexUrl, abstractFromIndex, parseOpenAlex, tavilyBody, parseTavily, formatExternal,
     CACHE_TTL, CACHE_MAX, normQ, hashKey, answerKey, cacheFresh, cachePrune, cacheableAnswer,
     STAT_KEEP_DAYS, ERR_KINDS, ERR_LABEL, statAdd, statPrune, statSummary, statsCSV, ADAPT, ADAPT_FAILS, adaptiveOrder,
-    VERIFY_SYSTEM, wantsVerify, verifyPrompt, parseVerdict, macFiles, withMac };
+    VERIFY_SYSTEM, wantsVerify, verifyPrompt, parseVerdict, macFiles, macChats, withMac };
 });
