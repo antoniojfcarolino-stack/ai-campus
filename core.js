@@ -90,9 +90,18 @@
   const isActive = k => UCS.some(u => u.key === k);
   const pastaOf = k => (byKey[k] && byKey[k].pasta) || String(k);
 
+  // ✍️ Organização das respostas como as do Claude (igual no Mac: agentes.py): Markdown limpo, a solução primeiro e depois a explicação.
+  const ORGANIZACAO = 'ORGANIZAÇÃO (como o Claude): Markdown limpo. Subtítulos «##»/«###» curtos e descritivos; passos numerados; negrito só nos termos-chave; ' +
+    'matemática em LaTeX ($...$ em linha, $$...$$ para as contas importantes); tabelas Markdown quando ajudam (tabelas de verdade, mapas de Karnaugh, comparações); ' +
+    'código em blocos com a linguagem. Parágrafos curtos. Sem introduções, sem começar pelo nome do aluno ou por interjeições («Olha», «Então»), sem frases de despedida.';
   const ESTILOS = {
-    tutor: 'ESTILO TUTOR: não dês logo a solução completa de exercícios. Dá o raciocínio e a próxima pista, explica o método e termina com uma pergunta para o aluno tentar o passo seguinte. Só mostras a solução completa se o aluno a pedir explicitamente.',
-    completo: 'ESTILO RESOLUÇÃO: começa SEMPRE pela linha «**Resposta final:**» com o resultado (valores, vetores, a conclusão), curto e sem explicação. Depois, numa secção «**Explicação**», apresenta a solução completa, passo a passo, e explica o porquê de cada passo.',
+    tutor: 'ESTILO TUTOR: não dês logo a solução completa de exercícios. Dá o raciocínio e a próxima pista, explica o método e termina com uma pergunta para o aluno tentar o passo seguinte. Só mostras a solução completa se o aluno a pedir explicitamente.\n' + ORGANIZACAO,
+    completo: 'ESTILO RESOLUÇÃO: a solução primeiro, depois a explicação, sempre por esta ordem:\n' +
+      '1. A primeira linha é «**Solução:**» seguida do resultado final, direto e sem explicação (o valor, a expressão, a conclusão). Com várias alíneas, logo a seguir uma linha por alínea («- **(a)** …»). Se a resposta for código, o código final vem aqui, num bloco.\n' +
+      '2. Depois, «## Explicação»: uma frase com a ideia-chave ou o método e os passos como subtítulos numerados («### 1. Montar o mapa de Karnaugh»), cada um com o raciocínio em frases curtas, as contas e o porquê do passo.\n' +
+      '3. Se houve contas: «## Verificação», a confirmar o resultado por outro caminho em 1 a 3 linhas.\n' +
+      '4. Se houver uma rasteira típica de exame, fecha com uma linha «> ⚠️ **Rasteira de exame:** …».\n' +
+      'Numa dúvida curta (não um exercício), a «**Solução:**» é a resposta em 1 ou 2 frases e a «## Explicação» é um parágrafo curto, sem passos nem Verificação.\n' + ORGANIZACAO,
   };
 
   // Regra para quando a resposta também leva fontes de fora (Wikipédia, Stack Overflow, artigos, web): os apontamentos vêm primeiro.
@@ -122,11 +131,11 @@
   // 1) Sem tiques de IA e com o tamanho à medida da pergunta.
   const HUMANO_RULES = [
     'COMO FALAS (importante): como uma pessoa a explicar a um colega, não como um manual nem como um assistente.',
-    '- Tamanho à medida da pergunta: dúvida rápida → 2 a 5 frases, sem títulos nem listas; exercício ou tema grande → os passos essenciais. Nunca enchas.',
+    '- Tamanho à medida da pergunta: dúvida rápida → curta; exercício ou tema grande → os passos essenciais. Nunca enchas. O formato do ESTILO (em cima) manda sempre na estrutura.',
     '- Vai direto ao assunto e varia a forma de começar. Nunca: «Ótima pergunta», «Excelente questão», «Claro!», «Com certeza», «Certamente», «Como especialista».',
     '- Não acabes com fórmulas feitas: «Espero ter ajudado», «Em suma», «Em resumo», «Se tiveres mais dúvidas…», «Diz-me se precisares de mais alguma coisa».',
     '- Frases curtas e naturais, português de Portugal do dia a dia (trata o aluno por tu). Listas só quando ajudam mesmo. No máximo um emoji, e só se vier a propósito.',
-    '- Se souberes alguma coisa sobre o aluno (em baixo), usa-a com naturalidade: liga a explicação a uma dificuldade dele ou ao que ele prefere; o nome, de vez em quando, não em todas as respostas. Nunca digas que tens memória nem recites o que sabes dele.',
+    '- Se souberes alguma coisa sobre o aluno (em baixo), usa-a com naturalidade: liga a explicação a uma dificuldade dele ou ao que ele prefere; o nome, de vez em quando, nunca no início da resposta. Nunca digas que tens memória nem recites o que sabes dele.',
   ].join('\n');
 
   // 2) Mostrar em vez de descrever: um exemplo do tom por tipo de UC (substituído pelas respostas a que o aluno deu 👍).
@@ -1362,7 +1371,7 @@
   // A mesma pergunta no mesmo contexto: quem responde (UC ou automático), estilo, fontes externas, motor, as últimas
   // mensagens da conversa e a versão da biblioteca (um PDF novo muda os excertos, por isso muda a chave).
   // Muda quando as instruções dos agentes mudam: as respostas guardadas com as instruções antigas deixam de servir.
-  const PROMPT_V = 2;
+  const PROMPT_V = 3;   // (3: respostas organizadas como as do Claude; as guardadas no formato antigo deixam de servir)
   function answerKey({ q, mode, estilo, web, engine, hist = [], lib = 0 }) {
     const tail = cleanHistory(hist, 4).map(m => [m.role, normQ(m.content).slice(0, 400)]);
     return 'a:' + hashKey(normQ(q), mode, estilo, !!web, engine, tail, lib, PROMPT_V);
@@ -1573,7 +1582,7 @@
   return { UCS, byKey, ucLabel, isActive, pastaOf, PERFIS, DEFAULT_UCS, CATALOGO_UCS, SEM_BASE, defaultSemestres, normUC, normSemestres, completeUC,
     setSemestres, semestres, semAtual, semKeys, semOf, newUC, mergeSemestres, slugUC,
     TIPOS, kindOf, tipoAuto, fileTipo, cleanTema, driveParts, sortFiles, temasOf, isOffice, officePages, zipIndex,
-    HUMANO_RULES, EXEMPLOS_TOM, FB_TIPOS, normAluno, mergeAluno, prefsAluno, alunoPrompt, exemplosTom, limparTiques, FACTOS_SYSTEM, factosPrompt, parseFactos, ESTILOS, systemPrompt, norm, tokenize, chunkText, sortChunks, buildIndex, search, formatContext,
+    HUMANO_RULES, ORGANIZACAO, EXEMPLOS_TOM, FB_TIPOS, normAluno, mergeAluno, prefsAluno, alunoPrompt, exemplosTom, limparTiques, FACTOS_SYSTEM, factosPrompt, parseFactos, ESTILOS, systemPrompt, norm, tokenize, chunkText, sortChunks, buildIndex, search, formatContext,
     cosine, semSearch, fuse, sm2, dayKey, streak, progress, studyPrompt, summaryPrompt, planPrompt, buildICS,
     normPlan, mergeSync, routeFallback, routeConfident, routerPrompt, parseRoute, parseJSON, cleanHistory, buildBody,
     youtubeLinks, embedRequest, renderRich, chatToMarkdown, esc,

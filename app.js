@@ -1182,7 +1182,8 @@
         am.content = `⏳ A consultar ${ucs.map(ucLabel).join(' e ')}…`; paint();
         const rs = await Promise.all(ucs.map((k, i) => askUC(k, q, hist, i === 0, null, signal)));
         const parts = [{ text: `Pergunta do aluno: ${q}\n\n` + rs.map((r, i) => `### ${byKey[ucs[i]].nome}\n${r.text}`).join('\n\n') }];
-        const sys = 'Juntas as respostas de vários especialistas numa só, em português de Portugal, organizada por UC, sem repetições, mantendo fórmulas LaTeX ($...$) e citações [ficheiro, p. N] e [En].\n' + Core.HUMANO_RULES;
+        const sys = 'Juntas as respostas de vários especialistas numa só, em português de Portugal, organizada por UC, sem repetições, mantendo fórmulas LaTeX ($...$) e citações [ficheiro, p. N] e [En].\n' +
+          ($('#estilo').value === 'completo' ? 'Mantém o formato: começa por «**Solução:**» com os resultados de todas as UCs juntos; depois «## Explicação» com uma secção «### <UC>» por UC; «## Verificação» se houve contas.\n' : '') + Core.ORGANIZACAO + '\n' + Core.HUMANO_RULES;
         const fin = await aiStream({ system: sys, parts, maxHistory: 0 }, r => { am.content = r.text; am.status = r.status; paint(); }, signal);
         am.content = fin.text; am.calcs = rs.flatMap(r => r.calcs);
         am.sources = rs.flatMap(r => r.sources).filter((s, i, a) => a.findIndex(x => x.uri === s.uri) === i);
